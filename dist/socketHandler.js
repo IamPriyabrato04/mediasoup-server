@@ -43,6 +43,10 @@ export function handleSocketConnection(socket, worker) {
                 producers: new Map(),
                 consumers: new Map()
             });
+            // Print current participants
+            console.log(`✅ New participant joined room ${roomId}`);
+            console.log(`Total participants: ${room.peers.size}`);
+            console.log(`User IDs: ${Array.from(room.peers.keys())}`);
             socket.send(JSON.stringify({
                 type: 'joined',
                 data: { peerId, routerRtpCapabilities: room.router.rtpCapabilities }
@@ -100,19 +104,34 @@ export function handleSocketConnection(socket, worker) {
             case 'connectTransport': {
                 const { dtlsParameters, direction } = msg.data;
                 let transport;
+                let alreadyConnectedFlag;
                 if (direction === 'send') {
                     transport = peer.sendTransport;
+                    alreadyConnectedFlag = peer.sendConnected;
                 }
                 else if (direction === 'recv') {
                     transport = peer.recvTransport;
+                    alreadyConnectedFlag = peer.recvConnected;
                 }
                 else {
                     console.log(`Unknown transport direction: ${direction}`);
                     return;
                 }
+                if (alreadyConnectedFlag) {
+                    console.log(`Transport for ${direction} already connected for peer ${peerId}`);
+                    socket.send(JSON.stringify({ type: 'transportAlreadyConnected', data: { direction } }));
+                    return;
+                }
                 yield transport.connect({ dtlsParameters });
+                // Mark as connected
+                if (direction === 'send') {
+                    peer.sendConnected = true;
+                }
+                else if (direction === 'recv') {
+                    peer.recvConnected = true;
+                }
                 socket.send(JSON.stringify({ type: 'transportConnected', data: { direction } }));
-                console.log(`Connecting ${direction} transport for peer ${peerId}`);
+                console.log(`Connected ${direction} transport for peer ${peerId}`);
                 break;
             }
             case 'produce': {
@@ -172,6 +191,9 @@ export function handleSocketConnection(socket, worker) {
         peer === null || peer === void 0 ? void 0 : peer.producers.forEach((p) => p.close());
         peer === null || peer === void 0 ? void 0 : peer.consumers.forEach((c) => c.close());
         room.peers.delete(peerId);
+        console.log(`❌ Peer ${peerId} disconnected from room ${roomId}`);
+        console.log(`Remaining participants: ${room.peers.size}`);
+        console.log(`User IDs: ${Array.from(room.peers.keys())}`);
         if (room.peers.size === 0)
             rooms.delete(roomId);
     });
